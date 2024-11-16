@@ -8,11 +8,6 @@ This file defines layer types that are commonly used for transformers.
 """
 
 class PositionalEncoding(nn.Module):
-    """
-    Encodes information about the positions of the tokens in the sequence. In
-    this case, the layer has no learnable parameters, since it is a simple
-    function of sines and cosines.
-    """
     def __init__(self, embed_dim, dropout=0.1, max_len=5000):
         """
         Construct the PositionalEncoding layer.
@@ -28,6 +23,7 @@ class PositionalEncoding(nn.Module):
         # Create an array with a "batch dimension" of 1 (which will broadcast
         # across all examples in the batch).
         pe = torch.zeros(1, max_len, embed_dim)
+        
         ############################################################################
         # TODO: Construct the positional encoding array as described in            #
         # Transformer_Captioning.ipynb.  The goal is for each row to alternate     #
@@ -38,7 +34,14 @@ class PositionalEncoding(nn.Module):
         ############################################################################
         # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-        pass
+        # 创建位置向量 [max_len, 1]
+        position = torch.arange(0, max_len).unsqueeze(1).float()
+        # 创建分母项 [embed_dim/2]
+        div_term = torch.exp(torch.arange(0, embed_dim, 2).float() * (-math.log(10000.0) / embed_dim))
+        
+        # 使用 sin 和 cos 交替填充
+        pe[0, :, 0::2] = torch.sin(position * div_term)
+        pe[0, :, 1::2] = torch.cos(position * div_term)
 
         # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
         ############################################################################
@@ -47,6 +50,7 @@ class PositionalEncoding(nn.Module):
 
         # Make sure the positional encodings will be saved with the model
         # parameters (mostly for completeness).
+        
         self.register_buffer('pe', pe)
 
     def forward(self, x):
@@ -59,8 +63,9 @@ class PositionalEncoding(nn.Module):
               D is embed dim
         Returns:
          - output: the input sequence + positional encodings, of shape (N, S, D)
-        """
+        """        
         N, S, D = x.shape
+        
         # Create a placeholder, to be overwritten by your code below.
         output = torch.empty((N, S, D))
         ############################################################################
@@ -70,14 +75,17 @@ class PositionalEncoding(nn.Module):
         ############################################################################
         # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-        pass
+        # 将位置编码加到输入上，只使用需要的序列长度
+        output = x + self.pe[:, :S, :]
+        # 应用 dropout
+        output = self.dropout(output)
 
         # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
         ############################################################################
         #                             END OF YOUR CODE                             #
         ############################################################################
+        
         return output
-
 
 class MultiHeadAttention(nn.Module):
     """
@@ -144,11 +152,12 @@ class MultiHeadAttention(nn.Module):
         - output: Tensor of shape (N, S, E) giving the weighted combination of
           data in value according to the attention weights calculated using key
           and query.
-        """
+        """        
         N, S, E = query.shape
         N, T, E = value.shape
+        H = self.n_head
         # Create a placeholder, to be overwritten by your code below.
-        output = torch.empty((N, S, E))
+        output = torch.empty((N, S, E))        
         ############################################################################
         # TODO: Implement multiheaded attention using the equations given in       #
         # Transformer_Captioning.ipynb.                                            #
@@ -165,12 +174,40 @@ class MultiHeadAttention(nn.Module):
         ############################################################################
         # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-        pass
-
+        # 1. 线性变换
+        query = self.query(query)  # (N, S, E)
+        key = self.key(key)      # (N, T, E)
+        value = self.value(value)  # (N, T, E)
+        
+        # 2. 将 embed_dim 分割成 num_heads 个 head_dim
+        query = query.view(N, S, H, self.head_dim).transpose(1, 2)  # (N, H, S, E/H)
+        key = key.view(N, T, H, self.head_dim).transpose(1, 2)      # (N, H, T, E/H)
+        value = value.view(N, T, H, self.head_dim).transpose(1, 2)  # (N, H, T, E/H)
+        
+        # 3. 计算注意力分数
+        scores = torch.matmul(query, key.transpose(-2, -1))  # (N, H, S, T)
+        scores = scores / math.sqrt(self.head_dim)  # 缩放
+        
+        # 4. 应用 mask（如果提供）
+        if attn_mask is not None:
+            scores = scores.masked_fill(~attn_mask.unsqueeze(0).unsqueeze(0), float('-inf'))
+        
+        # 5. 计算注意力权重并应用 dropout
+        attn_weights = torch.softmax(scores, dim=-1)  # (N, H, S, T)
+        attn_weights = self.attn_drop(attn_weights)
+        
+        # 6. 加权组合 value
+        out = torch.matmul(attn_weights, value)  # (N, H, S, E/H)
+        
+        # 7. 转换回原始形状
+        out = out.transpose(1, 2).contiguous().view(N, S, E)  # (N, S, E)
+        
+        # 8. 最后的线性变换
+        output = self.proj(out)
         # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
         ############################################################################
         #                             END OF YOUR CODE                             #
-        ############################################################################
+        ############################################################################        
         return output
 
 

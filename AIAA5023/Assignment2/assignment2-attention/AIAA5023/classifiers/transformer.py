@@ -63,17 +63,16 @@ class CaptioningTransformer(nn.Module):
     def forward(self, features, captions):
         """
         Given image features and caption tokens, return a distribution over the
-        possible tokens for each timestep. Note that since the entire sequence
-        of captions is provided all at once, we mask out future timesteps.
-
+        possible tokens for each timestep.
+        
         Inputs:
-         - features: image features, of shape (N, D)
-         - captions: ground truth captions, of shape (N, T)
-
+        - features: image features, of shape (N, D)
+        - captions: ground truth captions, of shape (N, T)
+        
         Returns:
-         - scores: score for each token at each timestep, of shape (N, T, V)
+        - scores: score for each token at each timestep, of shape (N, T, V)
         """
-        N, T = captions.shape
+        N, T = captions.shape        
         # Create a placeholder, to be overwritten by your code below.
         scores = torch.empty((N, T, self.vocab_size))
         ############################################################################
@@ -90,13 +89,36 @@ class CaptioningTransformer(nn.Module):
         ############################################################################
         # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
 
-        pass
-
+        # 1. 对图像特征进行投影,使其维度与词向量维度一致
+        projected_features = self.visual_projection(features)  # (N, W)
+        
+        # 2. 对caption进行词嵌入
+        caption_embeddings = self.embedding(captions)  # (N, T, W)
+        
+        # 3. 添加位置编码
+        caption_embeddings = self.positional_encoding(caption_embeddings)  # (N, T, W)
+        
+        # 4. 准备mask矩阵来mask掉未来时间步
+        # 创建一个布尔类型的下三角矩阵
+        device = captions.device
+        tgt_mask = torch.triu(torch.ones(T, T, device=device) == 1, diagonal=1)
+        tgt_mask = ~tgt_mask  # 转换为允许attend的位置为True
+        
+        # 5. 应用Transformer解码器
+        decoder_output = self.transformer(
+            tgt=caption_embeddings,  # (N, T, W)
+            memory=projected_features.unsqueeze(1),  # (N, 1, W) - 扩展时间维度
+            tgt_mask=tgt_mask  # (T, T)
+        )  # (N, T, W)
+        
+        # 6. 投影到词表大小的logits
+        scores = self.output(decoder_output)  # (N, T, V)
+        
         # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
         ############################################################################
         #                             END OF YOUR CODE                             #
         ############################################################################
-
+    
         return scores
 
     def sample(self, features, max_length=30):
