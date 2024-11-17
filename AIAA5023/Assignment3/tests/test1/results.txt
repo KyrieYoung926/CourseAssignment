@@ -1,0 +1,6 @@
+Generation completed!
+Total characters: 527312
+Total words: 77552
+Number of sections: 95
+Total API calls: 191
+time: 2h
